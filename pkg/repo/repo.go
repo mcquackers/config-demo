@@ -36,10 +36,10 @@ func (r MDBRepo) SetConfig(ctx context.Context, corporateID, venueID, vendorID s
 		return nil, result.Err()
 	}
 
-	return r.GetConfig(ctx, corporateID, venueID, vendorID, config.GetConfigType())
+	return r.GetSpecificConfig(ctx, corporateID, venueID, vendorID, config.GetConfigType())
 }
 
-func (r *MDBRepo) GetConfig(ctx context.Context, corporateID, venueID, vendorID string, configType entities.ConfigType) (entities.ValidatedConfig, error) {
+func (r *MDBRepo) GetSpecificConfig(ctx context.Context, corporateID, venueID, vendorID string, configType entities.ConfigType) (entities.ValidatedConfig, error) {
 	csr, err := r.configCollection.Aggregate(ctx, makeConfigPipeline(corporateID, venueID, vendorID, configType))
 	if err != nil {
 		return nil, err
@@ -49,10 +49,21 @@ func (r *MDBRepo) GetConfig(ctx context.Context, corporateID, venueID, vendorID 
 	return getConfigFromCursor(ctx, csr, configType)
 }
 
+func (r *MDBRepo) GetActiveConfig(ctx context.Context, corporateID, venueID, vendorID string, configType entities.ConfigType) (entities.ValidatedConfig, error) {
+	csr, err := r.configCollection.Aggregate(ctx, makeGetActiveConfigPipeline(corporateID, venueID, vendorID, configType))
+	if err != nil {
+		return nil, err
+	}
+
+	defer csr.Close(ctx)
+
+	return getConfigFromCursor(ctx, csr, configType)
+}
+
 //Must be updated when new config type is added
 func getConfigFromCursor(ctx context.Context, cursor *mongo.Cursor, configType entities.ConfigType) (entities.ValidatedConfig, error) {
 	if !cursor.Next(ctx) {
-		return nil, fmt.Errorf("no config found")
+		return emptyConfigForType(configType), nil
 	}
 
 	var err error
@@ -83,4 +94,20 @@ func getConfigFromCursor(ctx context.Context, cursor *mongo.Cursor, configType e
 	}
 
 	return nil, fmt.Errorf("unsupported config type")
+}
+
+func emptyConfigForType(configType entities.ConfigType) entities.ValidatedConfig {
+	switch configType {
+	case entities.CONFIG_TYPE_MAIN:
+		config := entities.MainConfig{}
+		return &config
+	case entities.CONFIG_TYPE_DEMO_CONFIG:
+		config := entities.CloudCartConfig{}
+		return &config
+
+	case entities.CONFIG_TYPE_OTHER_EXAMPLE:
+		config := entities.OtherConfig{}
+		return &config
+	}
+	return nil
 }

@@ -24,7 +24,7 @@ type ValidatedConfig interface {
 func (ct ConfigType) String() string {
 	switch ct {
 	case CONFIG_TYPE_DEMO_CONFIG:
-		return "demo_config"
+		return "cloud_cart"
 	case CONFIG_TYPE_OTHER_EXAMPLE:
 		return "other_example"
 	default:
@@ -34,9 +34,10 @@ func (ct ConfigType) String() string {
 
 type MainConfig struct {
 	CorporateID string          `bson:"corporate_id"`
-	VenueID     string          `bson:"venue_id"`
-	VendorID    string          `bson:"vendor_id"`
+	VenueID     string          `bson:"venue_id,omitempty"`
+	VendorID    string          `bson:"vendor_id,omitempty"`
 	CloudCart   CloudCartConfig `bson:"cloud_cart"`
+	OtherConfig OtherConfig     `bson:"other_example"`
 }
 
 func (c *MainConfig) Validate() error {
@@ -48,6 +49,7 @@ func (c *MainConfig) GetConfigType() ConfigType {
 }
 
 type ConfigMeta struct {
+	Enabled   bool      `bson:"enabled"`
 	ChangedBy string    `bson:"changed_by"`
 	ChangedAt time.Time `bson:"changed_at"`
 }
