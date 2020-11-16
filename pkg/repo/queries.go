@@ -8,11 +8,31 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
+func makeUpsertConfigFilter(configLevel entities.ConfigLevel, corporateID, venueID, vendorID string) (bson.M, error) {
+	if configLevel == entities.CONFIG_LEVEL_UNSPECIFIED {
+		return nil, fmt.Errorf("invalid config level: %d", configLevel)
+	}
+	filter := bson.M{
+		"config_level": configLevel,
+	}
+
+	if configLevel >= entities.CONFIG_LEVEL_CORPORATE {
+		filter["corporate_id"] = corporateID
+	}
+	if configLevel >= entities.CONFIG_LEVEL_VENUE {
+		filter["venue_id"] = venueID
+	}
+	if configLevel >= entities.CONFIG_LEVEL_VENDOR {
+		filter["vendor_id"] = vendorID
+	}
+
+	return filter, nil
+}
 func makeConfigPipeline(corporateID, venueID, vendorID string, configType entities.ConfigType) mongo.Pipeline {
 	switch configType {
 	case entities.CONFIG_TYPE_UNSPECIFIED: // || !configType.Valid()
 		return mongo.Pipeline{}
-	case entities.CONFIG_TYPE_MAIN:
+	case entities.CONFIG_TYPE_FULL:
 		return makeMainConfigPipeline(corporateID, venueID, vendorID)
 	default:
 		return makeUnderlyingConfigPipeline(corporateID, venueID, vendorID, configType)
@@ -43,7 +63,7 @@ func makeUnderlyingConfigPipeline(corporateID, venueID, vendorID string, configT
 	return append(makeMainConfigPipeline(corporateID, venueID, vendorID), makeReplaceRootStage(configType))
 }
 
-func makeReplaceRootStage(configType entities.ConfigType) bson.D{
+func makeReplaceRootStage(configType entities.ConfigType) bson.D {
 	return bson.D{
 		{
 			Key: "$replaceRoot",
@@ -54,27 +74,37 @@ func makeReplaceRootStage(configType entities.ConfigType) bson.D{
 	}
 }
 
-func makeGetActiveConfigPipeline(corporateID, venueID, vendorID string, configType entities.ConfigType) mongo.Pipeline {
+func makeGetActiveConfigPipeline(configLevel entities.ConfigLevel, corporateID, venueID, vendorID string, configType entities.ConfigType) mongo.Pipeline {
 	return mongo.Pipeline{
-		makeGetActiveConfigMatch(corporateID, venueID, vendorID, configType),
+		makeGetActiveConfigMatch(configLevel, corporateID, venueID, vendorID, configType),
 		makeGetActiveConfigSort(),
 		makeGetActiveConfigLimit(),
 		makeReplaceRootStage(configType),
 	}
 }
 
-func makeGetActiveConfigMatch(corporateID, venueID, vendorID string, configType entities.ConfigType) bson.D {
+func makeGetActiveConfigMatch(configLevel entities.ConfigLevel, corporateID, venueID, vendorID string, configType entities.ConfigType) bson.D {
 	configMatch := bson.D{
 		{
 			Key: "$match",
-			Value: bson.D{{
-				"$or",
-				bson.A{
-					makeCorporateConfigQuery(corporateID, configType),
-					makeVenueConfigQuery(corporateID, venueID, configType),
-					makeVendorConfigQuery(corporateID, venueID, vendorID, configType),
+			Value: bson.D{
+				{
+					"config_level",
+					bson.D{
+						{
+							"$lte",
+							configLevel,
+						},
+					},
 				},
-			},
+				{
+					"$or",
+					bson.A{
+						makeCorporateConfigQuery(corporateID, configType),
+						makeVenueConfigQuery(corporateID, venueID, configType),
+						makeVendorConfigQuery(corporateID, venueID, vendorID, configType),
+					},
+				},
 			},
 		},
 	}
@@ -108,8 +138,6 @@ func makeGetActiveConfigLimit() bson.D {
 func makeCorporateConfigQuery(corporateID string, configType entities.ConfigType) bson.D {
 	return bson.D{
 		{"corporate_id", corporateID},
-		{"venue_id", ""},
-		{"vendor_id", ""},
 		{fmt.Sprintf("%s.meta.enabled", configType.String()), true},
 	}
 }
@@ -117,7 +145,6 @@ func makeVenueConfigQuery(corporateID, venueID string, configType entities.Confi
 	return bson.D{
 		{"corporate_id", corporateID},
 		{"venue_id", venueID},
-		{"vendor_id", ""},
 		{fmt.Sprintf("%s.meta.enabled", configType.String()), true},
 	}
 }
@@ -128,9 +155,4 @@ func makeVendorConfigQuery(corporateID, venueID, vendorID string, configType ent
 		{"vendor_id", vendorID},
 		{fmt.Sprintf("%s.meta.enabled", configType.String()), true},
 	}
-}
-func sortStage() bson.D {
-	return bson.D{{
-		"$sort", bson.D{{}},
-	}}
 }
